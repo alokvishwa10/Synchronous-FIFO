@@ -9,10 +9,10 @@ FIFO can store/write the **_d_in_** at every posedge of the clock based on wr_en
 The data can be taken out or read from FIFO at every posedge of the clock based on the rd_en signal till it is empty. The read pointer gets incremented on every data read from FIFO memory.
 
 ## Empty condition
-w_ptr == r_ptr i.e. write and read pointers has the same value. MSB of w_ptr and r_ptr also has the same value.
+w_ptr == r_ptr i.e. write and read pointers has the same value. MSB of wr_ptr and rd_ptr also has the same value.
 
 ## Full condition
-w_ptr == r_ptr i.e. write and read pointers has the same value, but the MSB of w_ptr and r_ptr differs.
+wr_ptr == rd_ptr i.e. write and read pointers has the same value, but the MSB of wr_ptr and rd_ptr differs.
 
 ### Verilog code and testbench to verify the module are provided in the repository
 
