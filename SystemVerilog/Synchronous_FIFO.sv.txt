@@ -1,0 +1,34 @@
+module fifo(
+  input clk,rst,rd,wr,
+  input [7:0] din,
+  output full,empty,
+  output reg[7:0] dout);
+  
+  reg[7:0] mem[31:0];
+  reg[4:0] rd_ptr,wr_ptr;
+  
+  always@(posedge clk)begin
+    if(rst)begin
+      dout<=0; rd_ptr<=0; wr_ptr<=0;
+      for(int i=0;i<32;i++)begin
+        mem[i]<=0;
+      end
+    end
+    else begin
+      if(wr && !full)begin
+        mem[wr_ptr]<=din;
+        wr_ptr<=wr_ptr+1;
+      end
+      
+      if(rd && !empty)begin
+        dout<=mem[rd_ptr];
+        rd_ptr<=rd_ptr+1;
+      end
+    end
+  end
+  
+  assign empty = ((wr_ptr-rd_ptr)==0) ? 1 : 0;
+  assign full = ((wr_ptr-rd_ptr)==31) ? 1 : 0;
+
+  
+endmodule

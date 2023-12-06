@@ -1,0 +1,242 @@
+interface fifo_if;
+  logic clk,rst,wr,rd;
+  logic[7:0] din;
+  logic full,empty;
+  logic[7:0] dout;
+endinterface
+
+
+
+
+
+
+class transaction;
+  randc bit[7:0] din;
+  rand bit wr,rd;
+  bit full,empty;
+  bit [7:0] dout;
+  
+  constraint rd_wr {/*rd!=wr;*/
+    wr dist {0:/50, 1:/50};
+    rd dist {0:/50, 1:/50};}
+  constraint data_c {din>1; din<16;}
+  
+  function void display(input string tag);
+    $display("[%0s] : wr=%0b, rd=%0b, din=%0d, dout=%0d, full=%0b, empty=%0b @ %0t", tag,wr,rd,din,dout,full,empty,$time);
+  endfunction
+  
+  function transaction copy();
+    copy=new;
+    copy.rd=this.rd;
+    copy.wr=this.wr;
+    copy.din=this.din;
+    copy.dout=this.dout;
+    copy.full=this.full;
+    copy.empty=this.empty;
+  endfunction
+endclass
+
+
+
+class generator;
+  transaction t;
+  mailbox #(transaction) mbx;
+  
+  int count=0;
+  event next,done;
+  
+  
+  function new(mailbox #(transaction) mbx,int count);
+    this.mbx=mbx;
+    this.count=count;
+    t=new;
+  endfunction
+  
+  task run;
+    repeat(count)begin
+      assert(t.randomize) else $error("Randomization failed");
+      mbx.put(t.copy);
+      t.display("GEN");
+      @(next);
+    end
+    ->done;
+  endtask
+  
+endclass
+
+
+
+class driver;
+  virtual fifo_if fif;
+  mailbox #(transaction) mbx;
+  transaction datac;
+  event next;
+  
+  function new(mailbox #(transaction) mbx);
+    this.mbx=mbx;
+  endfunction
+  
+  task reset;
+    fif.rst<=1'b1;
+    fif.rd<=0;
+    fif.wr<=0;
+    fif.din<=0;
+    repeat(5) @(posedge fif.clk);
+    fif.rst<=1'b0;
+    $display("Reset Done");
+  endtask
+  
+  task run;
+    forever begin
+      mbx.get(datac);
+      datac.display("DRV");
+//       $display("--------------");
+      fif.rd<=datac.rd;
+      fif.wr<=datac.wr;
+      fif.din<=datac.din;
+      repeat(2) @(posedge fif.clk);
+      ->next;
+    end
+  endtask
+  
+endclass
+
+
+
+class monitor;
+  virtual fifo_if fif;
+  transaction tr;
+  mailbox #(transaction) mbx;
+  
+  function new(mailbox #(transaction) mbx);
+    this.mbx=mbx;
+  endfunction
+  
+  task run;
+    tr=new;
+    forever begin
+      repeat(2) @(posedge fif.clk);
+      tr.wr=fif.wr;
+      tr.rd=fif.rd;
+      tr.din=fif.din;
+      tr.dout=fif.dout;
+      tr.full=fif.full;
+      tr.empty=fif.empty;
+      tr.display("MON"); 
+      mbx.put(tr);
+    end
+  endtask
+  
+endclass
+
+class scoreboard;
+  transaction tr;
+  mailbox #(transaction) mbx;
+  event next;
+  
+  bit[7:0] data[$];
+  bit[7:0] temp;
+  
+  function new(mailbox #(transaction) mbx);
+    this.mbx=mbx;
+  endfunction
+  
+  task run;
+    forever begin
+      mbx.get(tr);
+      tr.display("SCO");
+      
+      if(tr.wr==1'b1)begin
+        data.push_front(tr.din);
+        $display("[SCO] : Data stored in queue = %0d",tr.din);
+      end
+      if(tr.rd==1'b1)begin
+        if(tr.empty) $error("FIFO is empty");
+        else begin
+          temp=data.pop_back;
+          if(tr.dout==temp) $display("Matched");
+          else $error("Not Matched");
+        end
+      end
+      ->next;
+    end
+  endtask
+endclass
+
+
+class environment;
+  generator g; 
+  driver d; 
+  monitor m; 
+  scoreboard s;
+  
+  mailbox #(transaction) gdmbx;
+  mailbox #(transaction) msmbx;
+  event nextgs;
+  
+  virtual fifo_if fif;
+  function new(virtual fifo_if fif);
+    gdmbx=new;
+    g=new(gdmbx,80);
+    d=new(gdmbx);
+    
+    msmbx=new;
+    m=new(msmbx);
+    s=new(msmbx);
+    
+    this.fif=fif;
+    d.fif=this.fif;
+    m.fif=this.fif;
+    
+    g.next=nextgs;
+    s.next=nextgs;
+    
+  endfunction
+  
+  task pre_test;
+    d.reset;
+  endtask
+  
+  task test;
+    fork
+      g.run;
+      d.run;
+      m.run;
+      s.run;
+    join
+    
+  endtask
+  
+  task post_test;
+    wait(g.done.triggered);
+    $finish;
+  endtask
+  
+  task run;
+    pre_test;
+    test;
+    post_test;
+  endtask
+endclass
+
+module tb;
+  fifo_if fif();
+  fifo dut(fif.clk,fif.rst,fif.rd,fif.wr,fif.din,fif.full,fif.empty,fif.dout);
+  
+  initial fif.clk<=0;
+  always #5 fif.clk<=~fif.clk;
+  
+  environment env;
+  
+  initial begin
+    env=new(fif);
+    env.run;
+  end
+  
+  initial begin
+    $dumpfile("dump.vcd");
+    $dumpvars(1);
+    #1500 $finish;
+  end
+  
+endmodule
